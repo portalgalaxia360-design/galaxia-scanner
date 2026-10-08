@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Escáner Galaxia</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#0b1220;color:#fff;min-height:100vh}.wrap{max-width:520px;margin:auto;padding:18px}.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.head h1{font-size:20px;margin:0}.card{background:#111b2e;border:1px solid #26354f;border-radius:18px;padding:14px;box-shadow:0 12px 30px rgba(0,0,0,.3)}#reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:320px}#reader video{border-radius:12px}.hint{text-align:center;color:#cbd5e1;font-size:14px;margin:14px 4px}.status{text-align:center;padding:11px;border-radius:12px;background:#1e293b;color:#cbd5e1;font-size:14px}.status.ok{background:#064e3b;color:#d1fae5}.status.err{background:#7f1d1d;color:#fee2e2}.btn{width:100%;margin-top:12px;padding:13px;border:0;border-radius:12px;background:#334155;color:#fff;font-size:15px;font-weight:700}.code{margin-top:10px;text-align:center;font-size:18px;font-weight:700;letter-spacing:1px;word-break:break-all}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><h1><i class="fas fa-barcode"></i> Escáner Galaxia</h1><span id="moduleLabel"></span></div>
+  <div class="card">
+    <div id="reader"></div>
+    <div class="hint">Apunte la cámara trasera al código de barras. La lectura es automática; no tome fotografías.</div>
+    <div id="status" class="status">Iniciando cámara...</div>
+    <div id="code" class="code"></div>
+    <button id="closeBtn" class="btn"><i class="fas fa-times"></i> Cerrar escáner</button>
+  </div>
+</div>
+<script>
+const params=new URLSearchParams(location.search);
+const module=params.get('module')==='envases'?'envases':'productos';
+document.getElementById('moduleLabel').textContent=module==='envases'?'Envases':'Productos';
+const statusEl=document.getElementById('status');
+const codeEl=document.getElementById('code');
+let scanner=null,stopped=false,locked=false;
+function status(msg,cls=''){statusEl.textContent=msg;statusEl.className='status '+cls}
+function send(code){if(locked)return;locked=true;code=String(code||'').trim();if(!code)return;codeEl.textContent=code;status('Código detectado. Enviando al registro...','ok');
+  if(window.opener&&!window.opener.closed){window.opener.postMessage({type:'galaxia-barcode-scanned',code,module},'*');}
+  stop().then(()=>{setTimeout(()=>{try{window.close()}catch(e){}},350)});
+}
+async function stop(){stopped=true;try{if(scanner){await scanner.stop();scanner.clear();}}catch(e){}}
+async function start(){
+  scanner=new Html5Qrcode('reader');
+  const config={fps:12,qrbox:{width:300,height:150},aspectRatio:1.777778};
+  try{
+    await scanner.start({facingMode:{exact:'environment'}},config,send,()=>{});
+    status('Cámara activa. Apunte al código de barras.');
+  }catch(e1){
+    try{
+      const cams=await Html5Qrcode.getCameras();
+      if(!cams||!cams.length)throw new Error('No se encontró una cámara');
+      const back=cams.find(c=>/back|rear|environment|trasera/i.test(c.label))||cams[0];
+      await scanner.start(back.id,config,send,()=>{});
+      status('Cámara activa. Apunte al código de barras.');
+    }catch(e2){
+      console.error(e2);status('No se pudo acceder a la cámara. Verifique permiso de cámara y que la página esté en HTTPS.','err');
+    }
+  }
+}
+document.getElementById('closeBtn').addEventListener('click',async()=>{await stop();try{window.close()}catch(e){}});
+window.addEventListener('beforeunload',()=>{try{if(scanner&&!stopped)scanner.stop()}catch(e){}});
+start();
+</script>
+</body>
+</html>

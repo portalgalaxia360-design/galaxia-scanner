@@ -2,58 +2,209 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Escáner Galaxia</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#0b1220;color:#fff;min-height:100vh}.wrap{max-width:520px;margin:auto;padding:18px}.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.head h1{font-size:20px;margin:0}.card{background:#111b2e;border:1px solid #26354f;border-radius:18px;padding:14px;box-shadow:0 12px 30px rgba(0,0,0,.3)}#reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:320px}#reader video{border-radius:12px}.hint{text-align:center;color:#cbd5e1;font-size:14px;margin:14px 4px}.status{text-align:center;padding:11px;border-radius:12px;background:#1e293b;color:#cbd5e1;font-size:14px}.status.ok{background:#064e3b;color:#d1fae5}.status.err{background:#7f1d1d;color:#fee2e2}.btn{width:100%;margin-top:12px;padding:13px;border:0;border-radius:12px;background:#334155;color:#fff;font-size:15px;font-weight:700}.code{margin-top:10px;text-align:center;font-size:18px;font-weight:700;letter-spacing:1px;word-break:break-all}</style>
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#08111f;color:#fff;font-family:Arial,sans-serif}
+body{padding:12px}
+.wrap{width:100%;max-width:560px;margin:0 auto}
+.header{display:flex;align-items:center;gap:10px;margin:4px 2px 12px}
+.header .icon{font-size:26px}.header h1{font-size:20px;margin:0}.header small{display:block;color:#aebbd0;margin-top:3px;font-size:12px}
+.card{background:#111c30;border:1px solid #263750;border-radius:18px;padding:12px;box-shadow:0 12px 35px rgba(0,0,0,.35)}
+#reader{width:100%;min-height:360px;background:#000;border-radius:14px;overflow:hidden;position:relative}
+#reader video{width:100%!important;height:auto!important;object-fit:cover;border-radius:14px}
+#reader__scan_region{min-height:360px!important}
+#reader__dashboard{display:none!important}
+.scan-frame{position:absolute;z-index:5;left:7%;right:7%;top:50%;height:125px;transform:translateY(-50%);border:2px solid #38bdf8;border-radius:12px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.28)}
+.scan-frame:before{content:"";position:absolute;left:0;right:0;top:50%;height:2px;background:#38bdf8;box-shadow:0 0 10px #38bdf8}
+.hint{text-align:center;color:#cbd5e1;font-size:14px;line-height:1.45;margin:13px 5px 10px}
+.status{text-align:center;padding:12px;border-radius:12px;background:#1e293b;color:#dbeafe;font-size:14px;line-height:1.4}
+.status.ok{background:#064e3b;color:#d1fae5}.status.err{background:#7f1d1d;color:#fee2e2}.status.warn{background:#713f12;color:#fef3c7}
+.code{margin-top:10px;text-align:center;font-size:23px;font-weight:800;letter-spacing:1px;word-break:break-all;min-height:28px}
+.actions{display:flex;gap:8px;margin-top:12px}.btn{flex:1;padding:13px;border:0;border-radius:12px;background:#334155;color:#fff;font-size:15px;font-weight:700;cursor:pointer}.btn.primary{background:#2563eb}.btn:disabled{opacity:.5}
+.debug{margin-top:10px;color:#94a3b8;font-size:11px;text-align:center;min-height:15px}
+</style>
 </head>
 <body>
 <div class="wrap">
-  <div class="head"><h1><i class="fas fa-barcode"></i> Escáner Galaxia</h1><span id="moduleLabel"></span></div>
+  <div class="header">
+    <div class="icon">▥</div>
+    <div><h1>Escáner Galaxia</h1><small id="moduleLabel">Productos</small></div>
+  </div>
+
   <div class="card">
-    <div id="reader"></div>
-    <div class="hint">Apunte la cámara trasera al código de barras. La lectura es automática; no tome fotografías.</div>
-    <div id="status" class="status">Iniciando cámara...</div>
+    <div id="reader"><div class="scan-frame"></div></div>
+    <div class="hint">Coloque el código dentro del recuadro. Mantenga el celular firme y a unos 10–25 cm del código. La lectura es automática.</div>
+    <div id="status" class="status">Solicitando cámara...</div>
     <div id="code" class="code"></div>
-    <button id="closeBtn" class="btn"><i class="fas fa-times"></i> Cerrar escáner</button>
+    <div class="actions">
+      <button id="restartBtn" class="btn primary">↻ Reintentar</button>
+      <button id="closeBtn" class="btn">✕ Cerrar</button>
+    </div>
+    <div id="debug" class="debug"></div>
   </div>
 </div>
+
 <script>
-const params=new URLSearchParams(location.search);
-const module=params.get('module')==='envases'?'envases':'productos';
-document.getElementById('moduleLabel').textContent=module==='envases'?'Envases':'Productos';
-const statusEl=document.getElementById('status');
-const codeEl=document.getElementById('code');
-let scanner=null,stopped=false,locked=false;
-function status(msg,cls=''){statusEl.textContent=msg;statusEl.className='status '+cls}
-function send(code){if(locked)return;locked=true;code=String(code||'').trim();if(!code)return;codeEl.textContent=code;status('Código detectado. Enviando al registro...','ok');
-  if(window.opener&&!window.opener.closed){window.opener.postMessage({type:'galaxia-barcode-scanned',code,module},'*');}
-  stop().then(()=>{setTimeout(()=>{try{window.close()}catch(e){}},350)});
+'use strict';
+
+const params = new URLSearchParams(location.search);
+const module = params.get('module') === 'envases' ? 'envases' : 'productos';
+document.getElementById('moduleLabel').textContent = module === 'envases' ? 'Registro de Envases' : 'Registro de Productos';
+
+const statusEl = document.getElementById('status');
+const codeEl = document.getElementById('code');
+const debugEl = document.getElementById('debug');
+const restartBtn = document.getElementById('restartBtn');
+const closeBtn = document.getElementById('closeBtn');
+
+let scanner = null;
+let locked = false;
+let stopping = false;
+
+function status(msg, cls='') {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (cls ? ' ' + cls : '');
 }
-async function stop(){stopped=true;try{if(scanner){await scanner.stop();scanner.clear();}}catch(e){}}
-async function start(){
-  scanner=new Html5Qrcode('reader');
-  const config={fps:12,qrbox:{width:300,height:150},aspectRatio:1.777778};
-  try{
-    await scanner.start({facingMode:{exact:'environment'}},config,send,()=>{});
-    status('Cámara activa. Apunte al código de barras.');
-  }catch(e1){
-    try{
-      const cams=await Html5Qrcode.getCameras();
-      if(!cams||!cams.length)throw new Error('No se encontró una cámara');
-      const back=cams.find(c=>/back|rear|environment|trasera/i.test(c.label))||cams[0];
-      await scanner.start(back.id,config,send,()=>{});
-      status('Cámara activa. Apunte al código de barras.');
-    }catch(e2){
-      console.error(e2);status('No se pudo acceder a la cámara. Verifique permiso de cámara y que la página esté en HTTPS.','err');
+
+function debug(msg) {
+  debugEl.textContent = msg || '';
+}
+
+function normalizeCode(value) {
+  return String(value || '').trim().replace(/\s+/g, '');
+}
+
+function send(code) {
+  if (locked) return;
+  const clean = normalizeCode(code);
+  if (!clean) return;
+
+  locked = true;
+  codeEl.textContent = clean;
+  status('✓ Código detectado: ' + clean, 'ok');
+  debug('Enviando código al registro…');
+
+  const message = { type: 'galaxia-barcode-scanned', code: clean, module: module };
+
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(message, '*');
+      debug('Código enviado. Cerrando escáner…');
+    } else {
+      debug('Prueba directa: el código fue leído. Abra el escáner desde el formulario para devolverlo automáticamente.');
     }
+  } catch (e) {
+    console.error(e);
+  }
+
+  setTimeout(async () => {
+    await stopScanner();
+    if (window.opener && !window.opener.closed) {
+      try { window.close(); } catch (e) {}
+    }
+  }, 650);
+}
+
+async function stopScanner() {
+  if (stopping) return;
+  stopping = true;
+  try {
+    if (scanner && scanner.isScanning) await scanner.stop();
+  } catch (e) {
+    console.warn('stop:', e);
+  }
+  try {
+    if (scanner) scanner.clear();
+  } catch (e) {}
+  scanner = null;
+  stopping = false;
+}
+
+function supportedFormats() {
+  // 1D formats most commonly used on products and logistics labels.
+  return [
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.CODE_128,
+    Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.ITF,
+    Html5QrcodeSupportedFormats.CODABAR
+  ];
+}
+
+async function startScanner() {
+  locked = false;
+  stopping = false;
+  codeEl.textContent = '';
+  debug('');
+  status('Solicitando cámara...');
+
+  await stopScanner();
+
+  try {
+    scanner = new Html5Qrcode('reader', {
+      verbose: false,
+      formatsToSupport: supportedFormats(),
+      useBarCodeDetectorIfSupported: true
+    });
+
+    const config = {
+      fps: 15,
+      qrbox: function(viewfinderWidth, viewfinderHeight) {
+        const width = Math.min(Math.floor(viewfinderWidth * 0.90), 500);
+        const height = Math.min(145, Math.max(90, Math.floor(viewfinderHeight * 0.32)));
+        return { width, height };
+      },
+      aspectRatio: 1.7777778,
+      disableFlip: false,
+      videoConstraints: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    };
+
+    // First attempt: rear camera by facingMode.
+    try {
+      await scanner.start({ facingMode: { exact: 'environment' } }, config, send, () => {});
+      status('Cámara trasera activa. Apunte el código al recuadro.');
+      debug('Formatos: EAN / UPC / CODE-128 / CODE-39 / ITF');
+      return;
+    } catch (e1) {
+      console.warn('facingMode exact failed:', e1);
+    }
+
+    // Fallback: select the rear camera from available devices.
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras || !cameras.length) throw new Error('No se encontró una cámara disponible.');
+
+    const rear = cameras.find(c => /back|rear|environment|trasera|posterior/i.test(c.label)) || cameras[cameras.length - 1];
+    await scanner.start(rear.id, config, send, () => {});
+    status('Cámara activa. Apunte el código al recuadro.');
+    debug('Cámara: ' + (rear.label || 'trasera'));
+  } catch (error) {
+    console.error('Scanner error:', error);
+    status('No se pudo iniciar el escáner. Revise el permiso de cámara y HTTPS.', 'err');
+    debug((error && error.message) ? error.message : String(error));
   }
 }
-document.getElementById('closeBtn').addEventListener('click',async()=>{await stop();try{window.close()}catch(e){}});
-window.addEventListener('beforeunload',()=>{try{if(scanner&&!stopped)scanner.stop()}catch(e){}});
-start();
+
+restartBtn.addEventListener('click', startScanner);
+closeBtn.addEventListener('click', async () => {
+  await stopScanner();
+  try { window.close(); } catch (e) {}
+});
+
+window.addEventListener('beforeunload', () => {
+  try { if (scanner && scanner.isScanning) scanner.stop(); } catch (e) {}
+});
+
+startScanner();
 </script>
 </body>
 </html>

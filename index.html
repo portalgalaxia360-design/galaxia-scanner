@@ -13,11 +13,11 @@ body{padding:12px}
 .header{display:flex;align-items:center;gap:10px;margin:4px 2px 12px}
 .header .icon{font-size:26px}.header h1{font-size:20px;margin:0}.header small{display:block;color:#aebbd0;margin-top:3px;font-size:12px}
 .card{background:#111c30;border:1px solid #263750;border-radius:18px;padding:12px;box-shadow:0 12px 35px rgba(0,0,0,.35)}
-#reader{width:100%;min-height:360px;background:#000;border-radius:14px;overflow:hidden;position:relative}
+#reader{width:100%;min-height:320px;background:#000;border-radius:14px;overflow:hidden;position:relative}
 #reader video{width:100%!important;height:auto!important;object-fit:cover;border-radius:14px}
-#reader__scan_region{min-height:360px!important}
+#reader__scan_region{min-height:320px!important}
 #reader__dashboard{display:none!important}
-.scan-frame{position:absolute;z-index:5;left:7%;right:7%;top:50%;height:125px;transform:translateY(-50%);border:2px solid #38bdf8;border-radius:12px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.28)}
+.scan-frame{position:absolute;z-index:5;left:5%;right:5%;top:50%;height:112px;transform:translateY(-50%);border:2px solid #38bdf8;border-radius:12px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.28)}
 .scan-frame:before{content:"";position:absolute;left:0;right:0;top:50%;height:2px;background:#38bdf8;box-shadow:0 0 10px #38bdf8}
 .hint{text-align:center;color:#cbd5e1;font-size:14px;line-height:1.45;margin:13px 5px 10px}
 .status{text-align:center;padding:12px;border-radius:12px;background:#1e293b;color:#dbeafe;font-size:14px;line-height:1.4}
@@ -25,6 +25,22 @@ body{padding:12px}
 .code{margin-top:10px;text-align:center;font-size:23px;font-weight:800;letter-spacing:1px;word-break:break-all;min-height:28px}
 .actions{display:flex;gap:8px;margin-top:12px}.btn{flex:1;padding:13px;border:0;border-radius:12px;background:#334155;color:#fff;font-size:15px;font-weight:700;cursor:pointer}.btn.primary{background:#2563eb}.btn:disabled{opacity:.5}
 .debug{margin-top:10px;color:#94a3b8;font-size:11px;text-align:center;min-height:15px}
+
+@media (orientation:landscape){
+  body{padding:8px}
+  .wrap{max-width:900px}
+  .header{margin-bottom:8px}
+  .card{padding:10px}
+  #reader{min-height:calc(100vh - 155px);max-height:72vh}
+  #reader__scan_region{min-height:calc(100vh - 155px)!important;max-height:72vh}
+  #reader video{max-height:72vh}
+  .hint{margin:7px 5px;font-size:13px}
+  .actions{margin-top:8px}
+}
+@media (orientation:portrait){
+  #reader{min-height:320px;max-height:58vh}
+  #reader__scan_region{min-height:320px!important;max-height:58vh}
+}
 </style>
 </head>
 <body>
@@ -43,7 +59,7 @@ body{padding:12px}
       <button id="restartBtn" class="btn primary">↻ Reintentar</button>
       <button id="closeBtn" class="btn">✕ Cerrar</button>
     </div>
-    <div id="debug" class="debug"></div>
+    <div id="debug" class="debug">🔊 Sonido y vibración listos al detectar.</div>
   </div>
 </div>
 
@@ -77,12 +93,52 @@ function normalizeCode(value) {
   return String(value || '').trim().replace(/\s+/g, '');
 }
 
+let audioCtx = null;
+
+function primeFeedback() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+  } catch(e) {}
+}
+
+function beep() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audioCtx) audioCtx = new AC();
+    const play = () => {
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(1320, now + 0.06);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.22, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.17);
+    };
+    if (audioCtx.state === 'suspended') audioCtx.resume().then(play).catch(()=>{});
+    else play();
+  } catch(e) {}
+}
+
+function feedback() {
+  beep();
+  try { if (navigator.vibrate) navigator.vibrate([80, 40, 120]); } catch(e) {}
+}
+
 function send(code) {
   if (locked) return;
   const clean = normalizeCode(code);
   if (!clean) return;
 
   locked = true;
+  feedback();
   codeEl.textContent = clean;
   status('✓ Código detectado: ' + clean, 'ok');
   debug('Enviando código al registro…');
@@ -150,22 +206,23 @@ async function startScanner() {
     scanner = new Html5Qrcode('reader', {
       verbose: false,
       formatsToSupport: supportedFormats(),
-      useBarCodeDetectorIfSupported: true
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
     });
 
     const config = {
-      fps: 15,
+      fps: 20,
       qrbox: function(viewfinderWidth, viewfinderHeight) {
-        const width = Math.min(Math.floor(viewfinderWidth * 0.90), 500);
-        const height = Math.min(145, Math.max(90, Math.floor(viewfinderHeight * 0.32)));
+        const width = Math.min(Math.floor(viewfinderWidth * 0.92), 560);
+        const height = Math.min(125, Math.max(82, Math.floor(viewfinderHeight * 0.22)));
         return { width, height };
       },
       aspectRatio: 1.7777778,
       disableFlip: false,
       videoConstraints: {
         facingMode: { ideal: 'environment' },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30, max: 30 }
       }
     };
 
@@ -173,6 +230,7 @@ async function startScanner() {
     try {
       await scanner.start({ facingMode: { exact: 'environment' } }, config, send, () => {});
       status('Cámara trasera activa. Apunte el código al recuadro.');
+      debug('⚡ Lectura rápida · 🔊 sonido · 📳 vibración');
       debug('Formatos: EAN / UPC / CODE-128 / CODE-39 / ITF');
       return;
     } catch (e1) {
@@ -186,6 +244,7 @@ async function startScanner() {
     const rear = cameras.find(c => /back|rear|environment|trasera|posterior/i.test(c.label)) || cameras[cameras.length - 1];
     await scanner.start(rear.id, config, send, () => {});
     status('Cámara activa. Apunte el código al recuadro.');
+    debug('⚡ Lectura rápida · 🔊 sonido · 📳 vibración');
     debug('Cámara: ' + (rear.label || 'trasera'));
   } catch (error) {
     console.error('Scanner error:', error);
@@ -194,7 +253,8 @@ async function startScanner() {
   }
 }
 
-restartBtn.addEventListener('click', startScanner);
+['pointerdown','touchstart','click'].forEach(ev => document.addEventListener(ev, primeFeedback, {passive:true}));
+restartBtn.addEventListener('click', () => { primeFeedback(); startScanner(); });
 closeBtn.addEventListener('click', async () => {
   await stopScanner();
   try { window.close(); } catch (e) {}
@@ -205,6 +265,12 @@ window.addEventListener('beforeunload', () => {
 });
 
 startScanner();
+
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    if (!locked) status('Cámara activa. Apunte el código al recuadro.');
+  }, 350);
+});
 </script>
 </body>
 </html>
